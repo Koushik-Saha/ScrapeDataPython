@@ -6,47 +6,57 @@ from pymongo import MongoClient
 # ✅ Connect to MongoDB
 client = MongoClient("mongodb://localhost:27017/")
 db = client["scraped_data"]
-collection = db["posts"]
+posts_collection = db["posts"]
+posts_details_collection = db["postsDetails"]
 
 # ✅ Configuration
-BASE_URL = "http://127.0.0.1:5000/scrape-homepage"
-LIMIT = 15
-MAX_PAGES = 723  # Change this based on how many pages you want to scrape
-current_page = 11  # Start from page 1
+SCRAPE_API = "http://127.0.0.1:5000/scrape-post"  # Replace with your actual API endpoint
+
 
 def scrape_and_store():
-    """Scrapes data from API and stores in MongoDB every 5 minutes."""
-    global current_page
+    """Fetches posts from 'posts' collection and scrapes only new ones."""
 
-    url = f"{BASE_URL}?page={current_page}&limit={LIMIT}"
-    print(f"🔄 Scraping Page {current_page}: {url}")
+    all_posts = posts_collection.find({}, {"url": 1, "_id": 0})
+    post_count = 0  # Counter for saved posts
 
-    try:
-        response = requests.get(url)
-        data = response.json()
+    for post in all_posts:
+        post_url = post.get("url")
 
-        if "posts" in data and len(data["posts"]) > 0:
-            # ✅ Store in MongoDB (Avoid duplicates)
-            for post in data["posts"]:
-                if not collection.find_one({"url": post["url"]}):  # Check if already exists
-                    collection.insert_one(post)
+        if not post_url:
+            print("⚠️ Skipping post with missing URL")
+            continue
 
-            print(f"✅ Stored {len(data['posts'])} posts from page {current_page} in MongoDB!")
-        else:
-            print(f"⚠️ No posts found on page {current_page}")
+        if posts_details_collection.find_one({"url": post_url}):
+            print(f"⚠️ Post already exists in postsDetails, skipping: {post_url}")
+            continue  # Move to the next post
 
-    except Exception as e:
-        print(f"❌ Error scraping page {current_page}: {e}")
+        print(f"🔄 Scraping post: {post_url}")
 
-    # ✅ Move to the next page
-    current_page += 1
-    if current_page > MAX_PAGES:  # Restart pagination after max pages
-        current_page = 1
+        try:
+            response = requests.get(f"{SCRAPE_API}?url={post_url}")
+            if response.status_code == 200:
+                post_data = response.json()
 
-# ✅ Schedule API call every 1 minutes
-schedule.every(30).seconds.do(scrape_and_store)
+                if "url" in post_data:
+                    inserted = posts_details_collection.insert_one(post_data)
+                    post_count += 1  # Increment counter
+                    print(f"✅ Post {post_count} saved with ID: {inserted.inserted_id}")
+                else:
+                    print(f"⚠️ Scraped data does not contain a valid URL: {post_url}")
 
-print("🚀 Auto-scraping started! Calling API every 30 seconds...")
+            else:
+                print(f"❌ API request failed for {post_url}, Status Code: {response.status_code}")
+
+        except Exception as e:
+            print(f"❌ Error scraping {post_url}: {e}")
+
+    print(f"🚀 Completed scraping cycle! Total new posts saved: {post_count}")
+
+
+# ✅ Schedule the script to run every 30 seconds
+schedule.every(10).seconds.do(scrape_and_store)
+
+print("🚀 Auto-scraping started! Calling API every 10 seconds...")
 
 while True:
     schedule.run_pending()
