@@ -61,33 +61,55 @@ def get_stored_homepage():
     return jsonify({"total_posts": len(posts_serialized), "posts": posts_serialized})
 
 
+def serialize_mongo_doc(doc):
+    """✅ Convert MongoDB document to JSON serializable format"""
+    if "_id" in doc:
+        doc["_id"] = str(doc["_id"])  # Convert ObjectId to string
+    return doc
+
 @app.route('/scrape-post', methods=['GET'])
 def scrape_post_api():
-    """API endpoint to get post details from a given URL."""
+    """API to scrape and save posts, preventing duplicate errors"""
     url = request.args.get('url')
 
     if not url:
         return jsonify({"error": "URL parameter is required"}), 400
 
-    # ✅ Check if the post already exists before inserting
-    existing_post = posts_details_collection.find_one({"url": url}, {"_id": 0})
-
+    # ✅ Check if post already exists
+    existing_post = posts_details_collection.find_one({"url": url})
     if existing_post:
-        return jsonify({"message": "Post already exists",
-                        "data": existing_post}), 200  # ✅ Return existing post instead of inserting
+        return jsonify({
+            "data": serialize_mongo_doc(existing_post),
+            "message": "Post already exists"
+        }), 200
 
-    post_data = scrape_post_details(url)
-
-    # Ensure post_data contains a valid URL
-    if "url" not in post_data or not post_data["url"]:
-        return jsonify({"error": "Scraped data does not contain a valid URL"}), 400
+    # ✅ If not found, scrape and insert
+    post_data = scrape_post_details(url)  # Replace with your scraping function
 
     try:
-        inserted_post = posts_details_collection.insert_one(post_data)
-        post_data["_id"] = str(inserted_post.inserted_id)  # ✅ Convert ObjectId to string
-        return dumps(post_data)  # ✅ Handles ObjectId serialization
-    except DuplicateKeyError:
-        return jsonify({"error": "Duplicate entry detected"}), 400
+        # ✅ Check again before inserting (avoiding race conditions)
+        if posts_details_collection.find_one({"url": post_data["url"]}):
+            return jsonify({
+                "data": serialize_mongo_doc(existing_post),
+                "message": "Post already exists"
+            }), 200
+
+        result = posts_details_collection.insert_one(post_data)
+        post_data["_id"] = str(result.inserted_id)  # ✅ Convert ObjectId to string
+        return jsonify({
+            "data": post_data,
+            "message": "Post successfully saved"
+        }), 201
+
+    except Exception as e:
+        if "E11000" in str(e):  # ✅ Catch duplicate key error and return gracefully
+            existing_post = posts_details_collection.find_one({"url": post_data["url"]})
+            return jsonify({
+                "data": serialize_mongo_doc(existing_post),
+                "message": "Post already exists"
+            }), 200
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/get-scrape-post-data', methods=['GET'])
 def get_post():
