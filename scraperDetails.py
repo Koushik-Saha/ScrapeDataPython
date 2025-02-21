@@ -46,6 +46,9 @@ def scrape_post_details(post_url):
     # Generate a unique post_id
     post_id = str(uuid.uuid4())
 
+    # Scrape the page...
+    url = post_url  # Ensure this value is always set
+
     # Extract Title
     title_tag = soup.find("h1")
     title = title_tag.text.strip() if title_tag else "No Title Found"
@@ -107,6 +110,7 @@ def scrape_post_details(post_url):
     # ✅ Structure Data for MongoDB
     post_data = {
         "post_id": post_id,  # ✅ Connects with `id` in `posts`
+        "url": url,
         "title": title,
         "author": author,
         "date": date,

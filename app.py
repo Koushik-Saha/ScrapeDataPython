@@ -63,30 +63,31 @@ def get_stored_homepage():
 
 @app.route('/scrape-post', methods=['GET'])
 def scrape_post_api():
-    """API endpoint to scrape and store post details from a given URL."""
+    """API endpoint to get post details from a given URL."""
     url = request.args.get('url')
 
     if not url:
         return jsonify({"error": "URL parameter is required"}), 400
 
-    # ✅ Check if the URL already exists
-    existing_post = posts_details_collection.find_one({"url": url}, {"_id": 0})  # Exclude _id to avoid ObjectId issue
+    # ✅ Check if the post already exists before inserting
+    existing_post = posts_details_collection.find_one({"url": url}, {"_id": 0})
 
     if existing_post:
-        return jsonify({"message": "Post already exists", "data": existing_post}), 200
+        return jsonify({"message": "Post already exists",
+                        "data": existing_post}), 200  # ✅ Return existing post instead of inserting
 
-    # ✅ Scrape the post
     post_data = scrape_post_details(url)
 
-    # ✅ Ensure `post_id` is unique
-    post_data["post_id"] = str(ObjectId())  # Generate a unique post_id
+    # Ensure post_data contains a valid URL
+    if "url" not in post_data or not post_data["url"]:
+        return jsonify({"error": "Scraped data does not contain a valid URL"}), 400
 
     try:
-        # ✅ Insert only if it does NOT exist
-        posts_details_collection.insert_one(post_data)
-        return jsonify({"message": "Post inserted successfully", "data": post_data}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500  # Handle any unexpected errors
+        inserted_post = posts_details_collection.insert_one(post_data)
+        post_data["_id"] = str(inserted_post.inserted_id)  # ✅ Convert ObjectId to string
+        return dumps(post_data)  # ✅ Handles ObjectId serialization
+    except DuplicateKeyError:
+        return jsonify({"error": "Duplicate entry detected"}), 400
 
 @app.route('/get-scrape-post-data', methods=['GET'])
 def get_post():
