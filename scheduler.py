@@ -12,11 +12,16 @@ collection = db["posts"]
 BASE_URL = "http://127.0.0.1:5000/scrape-homepage"
 LIMIT = 15
 MAX_PAGES = 723  # Change this based on how many pages you want to scrape
-current_page = 250  # Start from page 1
+current_page = 408  # Start from page 1
 
 def scrape_and_store():
-    """Scrapes data from API and stores in MongoDB every 5 minutes."""
+    """Scrapes data from API and stores in MongoDB every 5 seconds."""
     global current_page
+
+    if current_page > MAX_PAGES:
+        print("✅ All pages have been scraped. Stopping the script! 🚀")
+        schedule.clear()  # Stop the scheduler
+        return
 
     url = f"{BASE_URL}?page={current_page}&limit={LIMIT}"
     print(f"🔄 Scraping Page {current_page}: {url}")
@@ -40,14 +45,14 @@ def scrape_and_store():
 
     # ✅ Move to the next page
     current_page += 1
-    if current_page > MAX_PAGES:  # Restart pagination after max pages
-        current_page = 1
 
 # ✅ Schedule API call every 5 seconds
 schedule.every(5).seconds.do(scrape_and_store)
 
 print("🚀 Auto-scraping started! Calling API every 5 seconds...")
 
-while True:
+while schedule.jobs:
     schedule.run_pending()
     time.sleep(1)  # Prevent excessive CPU usage
+
+print("✅ Script has stopped successfully! 🎉")
