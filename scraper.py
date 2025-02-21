@@ -1,12 +1,28 @@
+from pymongo import MongoClient
+import time
+import logging
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
-import time
+
+# ✅ Configure Logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# ✅ Connect to MongoDB
+try:
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["scraped_data"]  # Database name
+    collection = db["posts"]  # Collection name
+    logging.info("✅ Connected to MongoDB successfully!")
+except Exception as e:
+    logging.error(f"❌ MongoDB Connection Error: {e}")
+
+# ✅ Set up ChromeDriver once (so it doesn’t download every time)
+CHROME_DRIVER_PATH = ChromeDriverManager().install()
 
 def scrape_homepage(page=1, limit=15):
-    """Scrapes posts from the homepage with pagination and limit."""
+    """Scrapes posts from homepage and stores them in MongoDB."""
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--disable-gpu")
@@ -14,17 +30,18 @@ def scrape_homepage(page=1, limit=15):
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-    # Construct the paginated URL
+    # Construct paginated URL
     homepage_url = f"https://www.banglachotikahinii.com/page/{page}/"
+    logging.info(f"🔄 Scraping: {homepage_url}")
+
     driver.get(homepage_url)
-    time.sleep(5)
+    time.sleep(5)  # Wait for JavaScript to load
 
     soup = BeautifulSoup(driver.page_source, "html.parser")
     driver.quit()
 
     # Find all post articles
     posts = soup.find_all("article")
-
     post_details = []
 
     for post in posts[:limit]:  # Ensure we don't exceed the limit
@@ -61,17 +78,24 @@ def scrape_homepage(page=1, limit=15):
         # ✅ Extract Tags
         tags = [tag.text.strip() for tag in post.find_all("a", rel="tag")]
 
-        post_details.append({
+        post_data = {
             "title": title,
-            "url": post_url,  # ✅ Now includes URL
+            "url": post_url,
             "author": author,
             "date": date,
             "views": views,
             "subtitle": subtitle,
             "category": category,
             "tags": tags
-        })
+        }
 
+        # ✅ Insert into MongoDB (Avoid duplicates)
+        if not collection.find_one({"url": post_url}):  # Check if URL exists
+            collection.insert_one(post_data)
+
+        post_details.append(post_data)
+
+    print(f"✅ {len(post_details)} posts stored in MongoDB!")
     return {
         "page": page,
         "limit": limit,
