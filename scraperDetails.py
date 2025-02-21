@@ -1,13 +1,32 @@
+import uuid
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
+from pymongo import MongoClient
 import time
+import logging
+
+# ✅ Configure Logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# ✅ Connect to MongoDB
+try:
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["scraped_data"]  # Database name
+    collection = db["postsDetails"]  # Collection name
+    logging.info("✅ Connected to MongoDB successfully!")
+except Exception as e:
+    logging.error(f"❌ MongoDB Connection Error: {e}")
+
+# ✅ Set up ChromeDriver once (so it doesn’t download every time)
+CHROME_DRIVER_PATH = ChromeDriverManager().install()
 
 
 def scrape_post_details(post_url):
-    """Scrapes all content from a post dynamically."""
+    """Scrapes all content from a post dynamically and saves it in MongoDB."""
 
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -23,6 +42,9 @@ def scrape_post_details(post_url):
     # Parse the fully loaded page with BeautifulSoup
     soup = BeautifulSoup(driver.page_source, "html.parser")
     driver.quit()
+
+    # Generate a unique post_id
+    post_id = str(uuid.uuid4())
 
     # Extract Title
     title_tag = soup.find("h1")
@@ -82,7 +104,9 @@ def scrape_post_details(post_url):
                 "url": a["href"]
             })
 
-    return {
+    # ✅ Structure Data for MongoDB
+    post_data = {
+        "post_id": post_id,  # ✅ Connects with `id` in `posts`
         "title": title,
         "author": author,
         "date": date,
@@ -93,6 +117,15 @@ def scrape_post_details(post_url):
         "previous_post": previous_post,  # ✅ Now contains both name & URL
         "suggested_posts": suggested_posts  # ✅ Now correctly selects the second related-stories section
     }
+
+    # ✅ Save to MongoDB
+    try:
+        result = collection.insert_one(post_data)
+        logging.info(f"✅ Data inserted successfully with ID: {result.inserted_id}")
+    except Exception as e:
+        logging.error(f"❌ MongoDB Insert Error: {e}")
+
+    return post_data
 
 
 if __name__ == "__main__":

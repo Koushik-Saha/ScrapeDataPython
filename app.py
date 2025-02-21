@@ -1,4 +1,8 @@
+from bson.json_util import dumps
+
 from flask import Flask, request, jsonify
+from pymongo.errors import DuplicateKeyError
+
 from scraper import scrape_homepage
 from scraperDetails import scrape_post_details
 from scraperCategoryList import scrape_category_posts
@@ -12,6 +16,7 @@ app = Flask(__name__)
 client = MongoClient("mongodb://localhost:27017/")  # Change if using MongoDB Atlas
 db = client["scraped_data"]
 collection = db["posts"]
+posts_details_collection = db["postsDetails"]
 
 
 # ✅ Function to convert MongoDB documents to JSON safely
@@ -58,14 +63,68 @@ def get_stored_homepage():
 
 @app.route('/scrape-post', methods=['GET'])
 def scrape_post_api():
-    """API endpoint to get post details from a given URL."""
-    url = request.args.get('url')  # Get URL from query parameter
+    """API endpoint to scrape and store post details from a given URL."""
+    url = request.args.get('url')
 
     if not url:
         return jsonify({"error": "URL parameter is required"}), 400
 
+    # ✅ Check if the URL already exists
+    existing_post = posts_details_collection.find_one({"url": url}, {"_id": 0})  # Exclude _id to avoid ObjectId issue
+
+    if existing_post:
+        return jsonify({"message": "Post already exists", "data": existing_post}), 200
+
+    # ✅ Scrape the post
     post_data = scrape_post_details(url)
-    return jsonify(post_data)
+
+    # ✅ Ensure `post_id` is unique
+    post_data["post_id"] = str(ObjectId())  # Generate a unique post_id
+
+    try:
+        # ✅ Insert only if it does NOT exist
+        posts_details_collection.insert_one(post_data)
+        return jsonify({"message": "Post inserted successfully", "data": post_data}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500  # Handle any unexpected errors
+
+@app.route('/get-scrape-post-data', methods=['GET'])
+def get_post():
+    """Fetch post details using URL, Title, ID, or post_id."""
+
+    title = request.args.get('title')
+    url = request.args.get('url')
+    id_ = request.args.get('id')  # `id` from `posts`
+    post_id = request.args.get('post_id')  # `post_id` from `postsDetails`
+
+    if not any([title, url, id_, post_id]):
+        return jsonify({"error": "Missing title, URL, id, or post_id parameter"}), 400
+
+    # ✅ Search in `posts` collection by `id`, `title`, or `url`
+    query = {}
+    if id_:
+        query["id"] = id_
+    elif title and url:
+        query = {"title": title, "url": url}
+    elif title:
+        query = {"title": title}
+    elif url:
+        query = {"url": url}
+
+    post = collection.find_one(query, {"_id": 0})
+    if post:
+        return jsonify(post)
+
+    # ✅ Search in `postsDetails` collection by `post_id`
+    query = {}
+    if post_id:
+        query["post_id"] = post_id
+
+    post_details = posts_details_collection.find_one(query, {"_id": 0})
+    if post_details:
+        return jsonify(post_details)
+
+    return jsonify({"error": "Post not found"}), 404
 
 @app.route('/scrape-category', methods=['GET'])
 def scrape_category_api():

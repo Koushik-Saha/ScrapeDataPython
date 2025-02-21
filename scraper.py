@@ -1,3 +1,4 @@
+import uuid
 from pymongo import MongoClient
 import time
 import logging
@@ -78,7 +79,11 @@ def scrape_homepage(page=1, limit=15):
         # ✅ Extract Tags
         tags = [tag.text.strip() for tag in post.find_all("a", rel="tag")]
 
+        # ✅ Generate a unique ID for both collections
+        post_id = str(uuid.uuid4())
+
         post_data = {
+            "id": post_id,
             "title": title,
             "url": post_url,
             "author": author,
