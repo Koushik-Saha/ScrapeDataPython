@@ -11,6 +11,7 @@ from scraperCategoryList import scrape_category_posts
 from scraperCategoryListName import extract_categories
 from pymongo import MongoClient
 from bson import ObjectId  # ✅ Import BSON for ObjectId
+from urllib.parse import unquote
 
 app = Flask(__name__)
 
@@ -46,6 +47,7 @@ def scrape_home():
 
     return jsonify(data)
 
+
 # ✅ Function to convert MongoDB documents to JSON
 def serialize_doc(doc):
     doc["_id"] = str(doc["_id"])  # Convert ObjectId to string
@@ -69,6 +71,13 @@ def serialize_mongo_doc(doc):
         doc["_id"] = str(doc["_id"])  # Convert ObjectId to string
     return doc
 
+
+def is_valid_url(url):
+    """✅ Returns False if the URL contains non-ASCII characters, else True"""
+    decoded_url = unquote(url)  # Decode percent-encoded characters
+    return decoded_url.isascii()  # Check if all characters are ASCII
+
+
 @app.route('/scrape-post', methods=['GET'])
 def scrape_post_api():
     """API to scrape and save posts, preventing duplicate errors"""
@@ -76,6 +85,11 @@ def scrape_post_api():
 
     if not url:
         return jsonify({"error": "URL parameter is required"}), 400
+
+    # ✅ Skip URLs with non-ASCII characters
+    if not is_valid_url(url):
+        print(f"⚠️ Skipping non-ASCII URL: {url}")
+        return jsonify({"error": "Non-ASCII URL skipped"}), 400  # ✅ Fixed `continue` issue
 
     # ✅ Check if post already exists
     existing_post = posts_details_collection.find_one({"url": url})
@@ -86,7 +100,7 @@ def scrape_post_api():
         }), 200
 
     # ✅ Scrape Post Data
-    post_data = scrape_post_details(url)
+    post_data = scrape_post_details(url)  # Your scraping function
 
     # 🚨 If scraping failed, retry checking for data
     if not post_data:
@@ -99,13 +113,13 @@ def scrape_post_api():
             }), 200
         return jsonify({"error": "Scraping function returned None"}), 500
 
-    # 🚨 If `url` is missing in the scraped data
-    if "url" not in post_data or not post_data["url"]:
-        return jsonify({"error": "Scraped data is missing 'url' key"}), 500
+    # 🚨 If `post_id` is missing in the scraped data
+    if "post_id" not in post_data or not post_data["post_id"]:
+        return jsonify({"error": "Scraped data is missing 'post_id' key"}), 500
 
     try:
         # ✅ Check again before inserting (avoiding race conditions)
-        if posts_details_collection.find_one({"url": post_data["url"]}):
+        if posts_details_collection.find_one({"post_id": post_data["post_id"]}):
             return jsonify({
                 "data": serialize_mongo_doc(existing_post),
                 "message": "Post already exists"
@@ -166,6 +180,7 @@ def get_post():
 
     return jsonify({"error": "Post not found"}), 404
 
+
 @app.route('/scrape-category', methods=['GET'])
 def scrape_category_api():
     """API endpoint to scrape category-wise posts."""
@@ -179,6 +194,7 @@ def scrape_category_api():
     post_data = scrape_category_posts(category_url, page, limit)
     return jsonify(post_data)
 
+
 @app.route('/api/categories', methods=['GET'])
 def get_categories():
     """API endpoint to get categories with URLs and post counts."""
@@ -189,6 +205,7 @@ def get_categories():
 
     categories = extract_categories(url)
     return jsonify(categories)
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

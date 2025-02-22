@@ -12,51 +12,64 @@ posts_details_collection = db["postsDetails"]
 # ✅ Configuration
 SCRAPE_API = "http://127.0.0.1:5000/scrape-post"  # Replace with your actual API endpoint
 
-
 def scrape_and_store():
     """Fetches posts from 'posts' collection and scrapes only new ones."""
 
-    all_posts = posts_collection.find({}, {"url": 1, "_id": 0})
+    all_posts = posts_collection.find({}, {"url": 1, "_id": 0, "id": 1})
     post_count = 0  # Counter for saved posts
 
     for post in all_posts:
         post_url = post.get("url")
+        post_id = post.get("id")
 
-        if not post_url:
-            print("⚠️ Skipping post with missing URL")
+        if not post_url or not post_id:
+            print("⚠️ Skipping post with missing URL or post id")
             continue
 
-        if posts_details_collection.find_one({"url": post_url}):
-            print(f"⚠️ Post already exists in postsDetails, skipping: {post_url}")
+        # ✅ Check if already exists in `postsDetails`
+        if posts_details_collection.find_one({"post_collection_id": post_id}):
+            print(f"⚠️ Post already exists in postsDetails, skipping: {post_id}")
             continue  # Move to the next post
 
-        print(f"🔄 Scraping post: {post_url}")
+        print(f"🔄 Scraping posts: {post_url} && postId: {post_id}")
 
         try:
             response = requests.get(f"{SCRAPE_API}?url={post_url}")
-            if response.status_code == 200:
-                post_data = response.json()
 
-                if "url" in post_data:
+            # 🚀 Debugging API Response
+            print(f"🔍 Response Status: {response.status_code}")
+            print(f"📜 Response Headers: {response.headers}")
+
+            if response.status_code in [200, 201]:  # ✅ Handle both success cases
+                post_data = response.json()
+                print(f"📊 Scraped Data: {post_data}")
+
+                if "data" in post_data and "post_id" in post_data["data"]:
                     inserted = posts_details_collection.insert_one(post_data)
                     post_count += 1  # Increment counter
                     print(f"✅ Post {post_count} saved with ID: {inserted.inserted_id}")
                 else:
                     print(f"⚠️ Scraped data does not contain a valid URL: {post_url}")
 
-            else:
-                print(f"❌ API request failed for {post_url}, Status Code: {response.status_code}")
+            elif response.status_code == 500:
+                print(f"❌ API request failed with 500 INTERNAL SERVER ERROR for {post_url}")
+                print(f"🛑 Error Message: {response.text}")  # ✅ Print full error message from the API
 
+            else:
+                print(f"❌ API request failed for {post_url}, Status Code: {response.status_code}, Response: {response.text}")
+
+        except requests.exceptions.RequestException as e:
+            print(f"🚨 Network Error: {e}")  # ✅ Print network-related errors
         except Exception as e:
-            print(f"❌ Error scraping {post_url}: {e}")
+            print(f"❌ Unexpected Error: {e}")  # ✅ Catch unexpected Python errors
 
     print(f"🚀 Completed scraping cycle! Total new posts saved: {post_count}")
 
 
-# ✅ Schedule the script to run every 5 seconds
-schedule.every(5).seconds.do(scrape_and_store)
+# ✅ Schedule the script to run every 1 seconds
+schedule.every(1).seconds.do(scrape_and_store)
 
-print("🚀 Auto-scraping started! Calling API every 5 seconds...")
+print("🚀 Auto-scraping started! Calling API every 1 seconds...")
 
 while True:
     schedule.run_pending()
