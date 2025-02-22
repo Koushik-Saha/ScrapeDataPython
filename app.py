@@ -1,3 +1,5 @@
+import time
+
 from bson.json_util import dumps
 
 from flask import Flask, request, jsonify
@@ -83,8 +85,23 @@ def scrape_post_api():
             "message": "Post already exists"
         }), 200
 
-    # ✅ If not found, scrape and insert
-    post_data = scrape_post_details(url)  # Replace with your scraping function
+    # ✅ Scrape Post Data
+    post_data = scrape_post_details(url)
+
+    # 🚨 If scraping failed, retry checking for data
+    if not post_data:
+        time.sleep(3)  # ⏳ Wait 3 seconds before retrying
+        existing_post = posts_details_collection.find_one({"url": url})
+        if existing_post:
+            return jsonify({
+                "data": serialize_mongo_doc(existing_post),
+                "message": "Post already exists after retry"
+            }), 200
+        return jsonify({"error": "Scraping function returned None"}), 500
+
+    # 🚨 If `url` is missing in the scraped data
+    if "url" not in post_data or not post_data["url"]:
+        return jsonify({"error": "Scraped data is missing 'url' key"}), 500
 
     try:
         # ✅ Check again before inserting (avoiding race conditions)

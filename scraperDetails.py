@@ -1,13 +1,11 @@
 import uuid
-
+import time
+import logging
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
-import time
-import logging
 
 # ✅ Configure Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -15,33 +13,43 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # ✅ Connect to MongoDB
 try:
     client = MongoClient("mongodb://localhost:27017/")
-    db = client["scraped_data"]  # Database name
-    collection = db["postsDetails"]  # Collection name
+    db = client["scraped_data"]
+    posts_collection = db["posts"]
+    posts_details_collection = db["postsDetails"]
     logging.info("✅ Connected to MongoDB successfully!")
 except Exception as e:
     logging.error(f"❌ MongoDB Connection Error: {e}")
 
-# ✅ Set up ChromeDriver once (so it doesn’t download every time)
+# ✅ Set up ChromeDriver
 CHROME_DRIVER_PATH = ChromeDriverManager().install()
+options = webdriver.ChromeOptions()
+options.add_argument("--headless")
+options.add_argument("--disable-gpu")
+options.add_argument("--no-sandbox")
 
 
 def scrape_post_details(post_url):
-    """Scrapes all content from a post dynamically and saves it in MongoDB."""
+    """Scrapes post details and saves in MongoDB with reference to `posts` collection."""
 
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-
-    # Load the post URL
+    driver = webdriver.Chrome(service=Service(CHROME_DRIVER_PATH), options=options)
     driver.get(post_url)
     time.sleep(5)  # Allow JavaScript to load
-
-    # Parse the fully loaded page with BeautifulSoup
     soup = BeautifulSoup(driver.page_source, "html.parser")
     driver.quit()
+
+    # ✅ Retrieve `_id` from `posts` collection
+    post = posts_collection.find_one({"url": post_url}, {"id": 1})  # ✅ Use `_id`, not `id`
+
+    if not post:
+        logging.warning(f"⚠️ Post not found in 'posts' collection: {post_url}")
+        return {"error": "Post not found in 'posts' collection"}
+
+    posts_collection_id = str(post["id"])  # ✅ Use `_id` safely
+
+    if posts_details_collection.find_one({"post_collection_id": posts_collection_id}):
+        logging.info(f"⚠️ Post details already exist for post_collection_id: {posts_collection_id}")
+        return {"success": True, "message": "Post details already exist", "post_collection_id": posts_collection_id}
+
 
     # Generate a unique post_id
     post_id = str(uuid.uuid4())
@@ -67,11 +75,7 @@ def scrape_post_details(post_url):
 
     # ✅ Extract All Paragraphs Inside `entry-content` Div
     content_div = soup.find("div", class_="entry-content")
-    if content_div:
-        paragraphs = [p.text.strip() + "।" for p in content_div.find_all("p")]  # Add '।' after each paragraph
-        subtitle = " ".join(paragraphs)  # Join all paragraphs into one text
-    else:
-        subtitle = "No Content Found"
+    subtitle = " ".join([p.text.strip() + "।" for p in content_div.find_all("p")]) if content_div else "No Content Found"
 
     # Extract Category
     category_tag = soup.find("a", rel="category tag")
@@ -80,56 +84,44 @@ def scrape_post_details(post_url):
     # Extract Tags
     tags = [tag.text.strip() for tag in soup.find_all("a", rel="tag")]
 
-    # ✅ Extract Correct Previous Post Title with URL
+    # ✅ Extract Previous Post
     previous_post_div = soup.find("div", class_="nav-previous")
-    if previous_post_div:
-        previous_post_tag = previous_post_div.find("a", rel="prev")  # Get <a> inside nav-previous
-        previous_post = {
-            "name": previous_post_tag.text.strip(),
-            "url": previous_post_tag["href"]
-        } if previous_post_tag else {"name": "No Previous Post Found", "url": ""}
-    else:
-        previous_post = {"name": "No Previous Post Found", "url": ""}
+    previous_post = {
+        "name": previous_post_div.find("a", rel="prev").text.strip(),
+        "url": previous_post_div.find("a", rel="prev")["href"]
+    } if previous_post_div and previous_post_div.find("a", rel="prev") else {"name": "No Previous Post Found", "url": ""}
 
-    # ✅ Extract the Second `related-stories` Section
+    # ✅ Extract Suggested Posts
     suggested_posts_divs = soup.find_all("section", class_="related-stories")
-    if len(suggested_posts_divs) > 1:  # Ensure there are at least two sections
-        suggested_posts_div = suggested_posts_divs[1]  # Select the second one
-    else:
-        suggested_posts_div = None
-
-    # ✅ Extract Suggested Posts with URLs
-    suggested_posts = []
-    if suggested_posts_div:
-        for a in suggested_posts_div.find_all("a", rel="bookmark"):
-            suggested_posts.append({
-                "name": a.text.strip(),
-                "url": a["href"]
-            })
+    suggested_posts = [
+        {"name": a.text.strip(), "url": a["href"]}
+        for a in (suggested_posts_divs[1].find_all("a", rel="bookmark") if len(suggested_posts_divs) > 1 else [])
+    ]
 
     # ✅ Structure Data for MongoDB
     post_data = {
         "post_id": post_id,  # ✅ Connects with `id` in `posts`
+        "post_collection_id": posts_collection_id,
         "url": url,
         "title": title,
         "author": author,
         "date": date,
         "views": views,
-        "subtitle": subtitle,  # ✅ Now contains all paragraphs
+        "subtitle": subtitle,
         "category": category,
         "tags": tags,
-        "previous_post": previous_post,  # ✅ Now contains both name & URL
-        "suggested_posts": suggested_posts  # ✅ Now correctly selects the second related-stories section
+        "previous_post": previous_post,
+        "suggested_posts": suggested_posts
     }
 
     # ✅ Save to MongoDB
     try:
-        result = collection.insert_one(post_data)
+        result = posts_details_collection.insert_one(post_data)
         logging.info(f"✅ Data inserted successfully with ID: {result.inserted_id}")
+        return {"success": True, "message": "Data inserted successfully", "post_id": str(result.inserted_id)}
     except Exception as e:
         logging.error(f"❌ MongoDB Insert Error: {e}")
-
-    return post_data
+        return {"error": f"Database insert error: {str(e)}"}
 
 
 if __name__ == "__main__":

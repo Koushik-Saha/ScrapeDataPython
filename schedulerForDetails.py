@@ -53,10 +53,10 @@ def scrape_and_store():
     print(f"🚀 Completed scraping cycle! Total new posts saved: {post_count}")
 
 
-# ✅ Schedule the script to run every 30 seconds
-schedule.every(30).seconds.do(scrape_and_store)
+# ✅ Schedule the script to run every 5 seconds
+schedule.every(5).seconds.do(scrape_and_store)
 
-print("🚀 Auto-scraping started! Calling API every 30 seconds...")
+print("🚀 Auto-scraping started! Calling API every 5 seconds...")
 
 while True:
     schedule.run_pending()
