@@ -14,24 +14,31 @@ SCRAPE_API = "http://127.0.0.1:5000/scrape-post"  # Replace with your actual API
 
 def scrape_and_store():
     """Fetches posts from 'posts' collection and scrapes only new ones."""
-
-    all_posts = posts_collection.find({}, {"url": 1, "_id": 0, "id": 1})
+    all_posts = list(posts_collection.find({}, {"url": 1, "_id": 0, "id": 1}))
     post_count = 0  # Counter for saved posts
+    skipped_count = 0  # Counter for skipped posts
+
+    if not all_posts:
+        print("✅ No posts found in the database. Exiting...")
+        schedule.clear()
+        return
 
     for post in all_posts:
         post_url = post.get("url")
         post_id = post.get("id")
 
         if not post_url or not post_id:
-            print("⚠️ Skipping post with missing URL or post id")
+            print("⚠️ Skipping post with missing URL or post ID")
+            skipped_count += 1
             continue
 
         # ✅ Check if already exists in `postsDetails`
         if posts_details_collection.find_one({"post_collection_id": post_id}):
             print(f"⚠️ Post already exists in postsDetails, skipping: {post_id}")
+            skipped_count += 1
             continue  # Move to the next post
 
-        print(f"🔄 Scraping posts: {post_url} && postId: {post_id}")
+        print(f"🔄 Scraping post: {post_url} && postId: {post_id}")
 
         try:
             response = requests.get(f"{SCRAPE_API}?url={post_url}")
@@ -63,14 +70,19 @@ def scrape_and_store():
         except Exception as e:
             print(f"❌ Unexpected Error: {e}")  # ✅ Catch unexpected Python errors
 
-    print(f"🚀 Completed scraping cycle! Total new posts saved: {post_count}")
+    # ✅ Check if all posts are processed
+    total_posts = len(all_posts)
+    if post_count + skipped_count >= total_posts:
+        print(f"🎉 All {total_posts} posts have been processed! Stopping the script.")
+        schedule.clear()
 
-
-# ✅ Schedule the script to run every 1 seconds
+# ✅ Schedule the script to run every 1 second
 schedule.every(1).seconds.do(scrape_and_store)
 
-print("🚀 Auto-scraping started! Calling API every 1 seconds...")
+print("🚀 Auto-scraping started! Calling API every 1 second...")
 
-while True:
+while schedule.jobs:
     schedule.run_pending()
     time.sleep(1)  # Prevent excessive CPU usage
+
+print("✅ Scraping process completed. Exiting script.")
