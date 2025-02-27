@@ -12,8 +12,13 @@ from scraperCategoryListName import extract_categories
 from pymongo import MongoClient
 from bson import ObjectId  # ✅ Import BSON for ObjectId
 from urllib.parse import unquote
+from flask_cors import CORS
 
 app = Flask(__name__)
+
+# ✅ Allow CORS only for requests from Next.js frontend (localhost:3000)
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
+
 
 # ✅ Connect to MongoDB
 client = MongoClient("mongodb://localhost:27017/")  # Change if using MongoDB Atlas
@@ -63,6 +68,36 @@ def get_stored_homepage():
     posts_serialized = [serialize_doc(post) for post in posts]
 
     return jsonify({"total_posts": len(posts_serialized), "posts": posts_serialized})
+
+
+@app.route('/get-posts', methods=['GET'])
+def get_posts():
+    """Fetch posts with pagination"""
+    try:
+        page = int(request.args.get("page", 1))  # Default: page 1
+        limit = int(request.args.get("limit", 15))  # Default: 15 posts
+
+        skip = (page - 1) * limit
+        posts_cursor = collection.find({}, {"_id": 0}).skip(skip).limit(limit)
+        posts = list(posts_cursor)
+
+        total_posts = collection.count_documents({})
+        total_pages = (total_posts + limit - 1) // limit  # Ceiling division
+
+        return jsonify({
+            "data": posts,
+            "pagination": {
+                "current_page": page,
+                "limit": limit,
+                "total_posts": total_posts,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def serialize_mongo_doc(doc):
@@ -179,6 +214,7 @@ def get_post():
         return jsonify(post_details)
 
     return jsonify({"error": "Post not found"}), 404
+
 
 
 @app.route('/scrape-category', methods=['GET'])
