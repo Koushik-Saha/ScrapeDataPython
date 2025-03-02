@@ -16,6 +16,8 @@ from scraperCategoryListName import extract_categories
 # ✅ Import Configuration
 from config import Config
 
+from pymongo.mongo_client import MongoClient
+
 # ✅ Initialize Flask App
 app = Flask(__name__)
 app.config.from_object(Config)  # Load config settings
@@ -25,6 +27,14 @@ CORS(app, resources={r"/*": {"origins": app.config["CORS_ORIGINS"]}})
 
 # ✅ Connect to MongoDB using `MONGO_URI`
 client = MongoClient(app.config["MONGO_URI"])
+
+# Send a ping to confirm a successful connection
+try:
+    client.admin.command('ping')
+    print("Pinged your deployment. You successfully connected to MongoDB!")
+except Exception as e:
+    print(e)
+
 db = client["scraped_data"]
 collection = db["posts"]
 posts_details_collection = db["postsDetails"]
@@ -176,4 +186,4 @@ def get_categories():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(host="0.0.0.0", port=8080, debug=True)
