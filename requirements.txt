@@ -22,3 +22,4 @@ schedule~=1.2.2
 requests~=2.32.3
 pandas~=2.2.3
 flask_cors==5.0.1
+numpy==1.26.4
