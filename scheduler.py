@@ -11,8 +11,8 @@ collection = db["posts"]
 # ✅ Configuration
 BASE_URL = "http://127.0.0.1:5000/scrape-homepage"
 LIMIT = 15
-MAX_PAGES = 723  # Change this based on how many pages you want to scrape
-current_page = 408  # Start from page 1
+MAX_PAGES = 10  # Change this based on how many pages you want to scrape
+current_page = 1  # Start from page 1
 
 def scrape_and_store():
     """Scrapes data from API and stores in MongoDB every 5 seconds."""
